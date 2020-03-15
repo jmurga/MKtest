@@ -12,8 +12,8 @@ class MultiFasta:
 
 	def degenerancy(self,data):
 		
-		#DEGENERANCY DICTIONARIES
-		standardDict = {
+		#DEGENERANCY diCTIONARIES
+		standarddict = {
 			'TTT': '002', 'TTC': '002', 'TTA': '202', 'TTG': '202',
 			'TCT': '004', 'TCC': '004', 'TCA': '004', 'TCG': '004', 
 			'TAT': '002', 'TAC': '002', 'TAA': '022', 'TAG': '002', 
@@ -32,7 +32,7 @@ class MultiFasta:
 			'GGT': '004', 'GGC': '004', 'GGA': '004', 'GGG': '004'}
 
 		if(self.codonTable == 'standard'):
-			degenerateCodonTable = standardDict
+			degenerateCodonTable = standarddict
 			
 		degenerancy = ''
 		for i in range(0, len(data),3):
@@ -156,7 +156,7 @@ class MultiFasta:
 
 		div['mi'] =  matrix[0][np.where(matrix[0]=='0')].shape[0]
 		div['m0'] =  matrix[0][np.where(matrix[0]=='4')].shape[0]
-		div = div.rename(columns={'0fold':'Di','4fold':'D0','mi':'mi','m0':'m0'})
+		div = div.rename(columns={'0fold':'di','4fold':'d0','mi':'mi','m0':'m0'})
 		# div = div.pivot_table(index=['functionalClass'],columns=['functionalClass'],values='div').reset_index()
 
 		# Create SFS pd.DataFrame by functionClass and 20 frequency bin
@@ -165,11 +165,12 @@ class MultiFasta:
 		labels = b[1:].tolist()
 		daf['categories'] = pd.cut(daf['derivedAlleleFrequency'],bins=b,labels=labels)
 		daf = daf.groupby(['functionalClass','id','categories']).count().reset_index()
-		sfs = pd.DataFrame({'freq':daf['categories'].unique(),'P0':daf[daf['functionalClass']=='4fold']['derivedAlleleFrequency'].reset_index(drop=True),'Pi':daf[daf['functionalClass']=='0fold']['derivedAlleleFrequency'].reset_index(drop=True)})
+		sfs = pd.DataFrame({'freq':daf['categories'].unique(),'p0':daf[daf['functionalClass']=='4fold']['derivedAlleleFrequency'].reset_index(drop=True),'pi':daf[daf['functionalClass']=='0fold']['derivedAlleleFrequency'].reset_index(drop=True)})
 
-		sfs = sfs[['freq','P0','Pi']]
-		sfs['P0'] = sfs['P0'].fillna(0)
-		sfs['Pi'] = sfs['Pi'].fillna(0)
+		sfs = sfs[['freq','p0','pi']]
+		sfs['freq'] = sfs['freq'].astype(float)
 		sfs['freq'] = sfs['freq'].apply(lambda x: round(x,3))
+		sfs['p0'] = sfs['p0'].fillna(0)
+		sfs['pi'] = sfs['pi'].fillna(0)
 
 		return(sfs,div)
