@@ -14,3 +14,4 @@ sfs, div =rawData.formatSfs(s,m)
 analysis = extensions.Mk(sfs,div)
 c = [0.025,0.075,0.125]
 a,b,p=analysis.emkt(c,True)
+analysis.amkt()
