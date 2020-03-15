@@ -9,9 +9,9 @@ from scipy.optimize import curve_fit
 import uncertainties as unc
 import uncertainties.unumpy as unp
 import pandas as pd
+import rpy2
 import rpy2.robjects as robjects
-from rpy2.robjects.packages import importr
-from rpy2.robjects import pandas2ri
+
 
 class Mk:
 	
@@ -116,10 +116,7 @@ class Mk:
 
 			return(alphaCorrected,fractions)
 
-	def amkt(self,xlow,xhigh):
-
-		pandas2ri.activate()
-		ts = robjects.r('ts')
+	def amkt(self,xlow=0.1,xhigh=0.9):
 
 		## Compute alpha values and trim
 		alpha         = 1 - ((self.sfs.pi*self.d0)/(self.sfs.p0*self.di))
@@ -132,42 +129,43 @@ class Mk:
 		## Compute the original MK alpha using trimmed values
 		alphaNonasymp = (1 - ((self.sfs.pi.sum()*self.d0)/(self.sfs.p0.sum()*self.di)))
 
-		fitMKmodel="""function(alpha_trimmed, f_trimmed, res) {
-			library(nls2)
+		fitMKmodel="""
+			function(alpha_trimmed, f_trimmed, res) {
+				suppressMessages(library(nls2))
 
-			## First fitting using starting values (st)
-			mod = tryCatch({
+				## First fitting using starting values (st)
+				mod = tryCatch({
+					
+					## Starting values to fit the model  
+					st = expand.grid(const_a=seq(-1,1,length.out=res + 1), const_b=seq(-1,1,length.out=res), const_c=seq(1,10,length.out=res + 1))
+					
+					## Fitting
+					nls2::nls2(alpha_trimmed ~ const_a + const_b * exp(-const_c* f_trimmed), start=st, algorithm='brute-force', control=nls.control(maxiter=NROW(st)))
+					
+				}, error=function(cond) {}) ## Return condition of error when unable to fit
 				
-				## Starting values to fit the model  
-				st = expand.grid(const_a=seq(-1,1,length.out=res + 1), const_b=seq(-1,1,length.out=res), const_c=seq(1,10,length.out=res + 1))
+				## If mod fails...
+				if (length(mod) == 0) { return(NULL) }
 				
-				## Fitting
-				nls2::nls2(alpha_trimmed ~ const_a + const_b * exp(-const_c* f_trimmed), start=st, algorithm='brute-force', control=nls.control(maxiter=NROW(st)))
+				## Second fitting, starting from previous fit (mod)
+				mod2 = tryCatch({
+					nls2::nls2(alpha_trimmed ~ const_a + const_b * exp(-const_c* f_trimmed), start = mod, control=nls.control(maxiter=200))
+					
+				}, error=function(cond) {}) ## Same error handling than the previous step
 				
-			}, error=function(cond) {}) ## Return condition of error when unable to fit
-			
-			## If mod fails...
-			if (length(mod) == 0) { return(NULL) }
-			
-			## Second fitting, starting from previous fit (mod)
-			mod2 = tryCatch({
-				nls2::nls2(alpha_trimmed ~ const_a + const_b * exp(-const_c* f_trimmed), start = mod, control=nls.control(maxiter=200))
+				## If mod2 fails...
+				if (length(mod2) == 0) { return(NULL) }
 				
-			}, error=function(cond) {}) ## Same error handling than the previous step
-			
-			## If mod2 fails...
-			if (length(mod2) == 0) { return(NULL) }
-			
-			## Return mod2 if fitted
-			return(mod2)
-		}
+				## Return mod2 if fitted
+				return(mod2)
+			}
 		"""
 		predictNLS = """
 			## Compute confidence intervals of alpha using predictNLS 
 			## Get a CI using Monte Carlo simulation based upon a fitted model.  
 			## Thanks to Andrej-Nikolai Spiess (http://www.dr-spiess.de) for this code.
 			function(object, newdata, level = 0.95, nsim = 5000) {
-				library(MASS)
+				suppressMessages(library(MASS))
 				## get right-hand side of formula
 				RHS  = as.list(object$call$formula)[[3]]
 				EXPR = as.expression(RHS)
@@ -270,18 +268,15 @@ class Mk:
 		fitMKmodel=robjects.r(fitMKmodel)
 		predictNLS=robjects.r(predictNLS)
 
-		ts=robjects.r('ts')
-		predict=robjects.r('predict')
-		coef=robjects.r('coef')
-		rdf=robjects.r('data.frame')
-		rdata1 = ts(alphaTrimmed.values)
-		rdata2 = ts(fTrimmed.values)
-		rdata3 = ts(10)
+		predict=robjects.r('stats::predict')
+		coef=robjects.r('stats::coef')
+		rdf=robjects.r('base::data.frame')
+		rdata1 = robjects.FloatVector(alphaTrimmed.values)
+		rdata2 = robjects.FloatVector(fTrimmed.values)
 
 		## Two-step nls2() model fit at a given level of precision (res)
-		mod1 = fitMKmodel(rdata1,rdata2, rdata3)
+		mod1 = fitMKmodel(rdata1,rdata2, 10)
 		## If mod1 did not work, try a deeper scan for a decent fit (res=20)
-
 		try:
 			alpha_1_est = predict(mod1, newdata=rdf(f_trimmed=1))
 			const = coef(mod1)
@@ -296,10 +291,28 @@ class Mk:
 
 			asympDf = pd.DataFrame({'model':'exponential', 'a':const_a, 'b':const_b, 'c':const_c, 'alphaAsymptotic':alpha_1_est, 'ciLow':alpha_1_low, 'ciHigh':alpha_1_high, 'alphaOriginal':alphaNonasymp},index=[0])
 
+		# Force another fit
+		except rpy2.rinterface.RRuntimeError:
+			mod1 = fitMKmodel(rdata1,rdata2, 20)
+			
+			try:
+				alpha_1_est = predict(mod1, newdata=rdf(f_trimmed=1))
+				const = coef(mod1)
+				const = dict(zip(const.names, list(const)))
+				const_a = const['const_a']
+				const_b = const['const_b']
+				const_c = const['const_c']
+				
+				ci_pred = list(predictNLS(mod1, newdata=rdf(f_trimmed=1)))
+				alpha_1_low = ci_pred[5]
+				alpha_1_high = ci_pred[6]
+
+				asympDf = pd.DataFrame({'model':'exponential', 'a':const_a, 'b':const_b, 'c':const_c, 'alphaAsymptotic':alpha_1_est, 'ciLow':alpha_1_low, 'ciHigh':alpha_1_high, 'alphaOriginal':alphaNonasymp},index=[0])
+			except:
+				asympDf = pd.DataFrame({'model':'exponential', 'a':np.nan, 'b':np.nan, 'c':np.nan, 'alphaAsymptotic':np.nan, 'ciLow':np.nan, 'ciHigh':np.nan, 'alphaOriginal':alphaNonasymp},index=[0])
 		except:
+
 			asympDf = pd.DataFrame({'model':'exponential', 'a':np.nan, 'b':np.nan, 'c':np.nan, 'alphaAsymptotic':np.nan, 'ciLow':np.nan, 'ciHigh':np.nan, 'alphaOriginal':alphaNonasymp},index=[0])
-
-
 
 		return(asympDf)
 
