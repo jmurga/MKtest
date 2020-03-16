@@ -6,11 +6,11 @@ import pandas as pd
 import scipy.stats as stats
 import plotly.graph_objects as go
 from scipy.optimize import curve_fit
-import uncertainties as unc
-import uncertainties.unumpy as unp
 import pandas as pd
 import rpy2
 import rpy2.robjects as robjects
+import pylab
+import matplotlib.pyplot as plt
 
 
 class Mk:
@@ -101,15 +101,23 @@ class Mk:
 			## Cut-offs graph
 		
 			## Melt fractions data
-			fig = go.Figure(data=go.Scatter(x=listCutoffs, y=alphaCorrected.alphaCorrected),
-				layout=go.Layout(
-					title="Extended MKT analysis",
-					xaxis_type='category',
-					yaxis_title="Adaptation rate (alpha)",
-					xaxis_title="Frequency cut-offs",
-					template='seaborn'))
+			# fig = go.Figure(data=go.Scatter(x=listCutoffs, y=alphaCorrected.alphaCorrected),
+			# 	layout=go.Layout(
+			# 		title="Extended MKT analysis",
+			# 		xaxis_type='category',
+			# 		yaxis_title="Adaptation rate",
+			# 		xaxis_title="Frequency cut-offs",
+			# 		template='seaborn'))
 
-			return(alphaCorrected,fractions,fig)
+			names = [str(x) for x in listCutoffs]    
+			plt.style.use('seaborn')
+			plt.plot(names, alphaCorrected.alphaCorrected, 'o',color='black');
+			plt.plot(names, alphaCorrected.alphaCorrected, color='black');
+			plt.ylim((alphaCorrected.alphaCorrected[0] - alphaCorrected.alphaCorrected[0]*50/100), (alphaCorrected.alphaCorrected[-1] + alphaCorrected.alphaCorrected[-1]*50/100));
+			plt.xlabel('Frequency cut-offs')
+			plt.ylabel('Adaptation rate')
+			
+			return(alphaCorrected,fractions,plt)
 
 		## If no plot to render
 		else:
@@ -291,6 +299,25 @@ class Mk:
 
 			asympDf = pd.DataFrame({'model':'exponential', 'a':const_a, 'b':const_b, 'c':const_c, 'alphaAsymptotic':alpha_1_est, 'ciLow':alpha_1_low, 'ciHigh':alpha_1_high, 'alphaOriginal':alphaNonasymp},index=[0])
 
+
+			# Plotting fit and alpha data
+			def asympPlot(x):
+				return const_a + const_b * np.exp(-const_c*x)
+			vectorizeFunc = np.vectorize(asympPlot)
+			x = np.arange(0.0, 1, 0.00001)
+			y = vectorizeFunc(x)
+
+			plt.style.use('seaborn')
+			plt.plot(x, y, color='black');
+			plt.xlim(0 , 1);
+			plt.ylim(y[0], 1);
+			plt.plot(x, np.array([alpha_1_low]*x.shape[0]), color='black');
+			plt.plot(x, np.array([alpha_1_high]*x.shape[0]), color='black');
+			plt.plot(fTrimmed, alphaTrimmed, 'o', color='black');
+			plt.xlabel('Allele Frequency')
+			plt.ylabel('Rate of adaptation')
+			plt.fill_between(x,np.array([alpha_1_low]*x.shape[0]), np.array([alpha_1_high]*x.shape[0]),facecolor='gray', alpha=0.2)
+
 		# Force another fit
 		except rpy2.rinterface.RRuntimeError:
 			mod1 = fitMKmodel(rdata1,rdata2, 20)
@@ -314,5 +341,5 @@ class Mk:
 
 			asympDf = pd.DataFrame({'model':'exponential', 'a':np.nan, 'b':np.nan, 'c':np.nan, 'alphaAsymptotic':np.nan, 'ciLow':np.nan, 'ciHigh':np.nan, 'alphaOriginal':alphaNonasymp},index=[0])
 
-		return(asympDf)
+		return(asympDf,plt)
 
