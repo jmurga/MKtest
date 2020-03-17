@@ -1,0 +1,15 @@
+README.md
+setup.py
+mktest.egg-info/PKG-INFO
+mktest.egg-info/SOURCES.txt
+mktest.egg-info/dependency_links.txt
+mktest.egg-info/requires.txt
+mktest.egg-info/top_level.txt
+src/adapter/__init__.py
+src/adapter/extensions.py
+src/adapter/importData.py
+src/adapter/mkcalc.py
+src/sfscoder/__init__.py
+src/sfscoder/command.py
+src/sfscoder/ms.py
+src/sfscoder/sfs.py

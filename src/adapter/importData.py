@@ -1,11 +1,13 @@
 import pyfaidx as px
 import numpy as np
 import pandas as pd
+import os
+from cyvcf2 import VCF
 
 class MultiFasta:
 
-	def __init__(self,file,codonTable,split,bins):
-		self.file       = file
+	def __init__(self,fasta,codonTable,split,bins):
+		self.fasta       = fasta
 		self.codonTable = codonTable
 		self.split      = split
 		self.bins       = bins
@@ -46,7 +48,7 @@ class MultiFasta:
 	
 	def sequencesToMatrix(self):
 
-		fasta = px.Fasta(self.file,duplicate_action='first',sequence_always_upper=True,read_long_names=True)
+		fasta = px.Fasta(self.fasta,duplicate_action='first',sequence_always_upper=True,read_long_names=True)
 
 		# Extract samples from fastas
 		samples = list(fasta.keys())
@@ -133,7 +135,7 @@ class MultiFasta:
 					output.append(tmp)
 		return(output)
 
-	def formatSfs(self, sfs, matrix):
+	def formatFastaSfs(self, sfs, matrix):
 
 		df         = pd.DataFrame(sfs)
 		df['id']   = 'uploaded'
@@ -174,3 +176,89 @@ class MultiFasta:
 		sfs['pi'] = sfs['pi'].fillna(0)
 
 		return(sfs,div)
+
+class Vcf:
+
+	def __init__(self,vcf,coordinates,pop,bins):
+		self.vcf         = vcf
+		self.coordinates = coordinates
+		self.pop         = pop
+		self.bins        = bins
+
+	def uSfsFromVcf(self):
+
+		self.coordinates = pd.read_csv(self.coordinates,header=0,sep='\t')
+		# coordinates = pd.read_csv(coordinates,header=0,sep='\t')
+
+		rawVariants = list()
+		# for index,row in coordinates.iterrows():
+		for index,row in self.coordinates.iterrows():
+			print(index,row['id'])
+			# rawVcf = VCF(vcf)
+			rawVcf = VCF(self.vcf)
+			for variant in rawVcf(str(row['chrom']) + ':' + str(row['start']) + '-' + str(row['end'])):
+				siteType = ''.join(variant.INFO['VT'])
+				try:
+					# Formating Ancestral Allele
+					if(variant.CHROM == 'Y'):
+						AA = variant.INFO['AA'].upper()
+					else:
+						AA = variant.INFO['AA'][:-3].upper()
+					
+					# Check if SNPs and AA defined
+					try:
+						variant.INFO['MULTI_ALLELIC']
+						biallelic = False
+					except:
+						biallelic = True
+					
+					if(siteType == 'SNP' and (AA != '.' and AA!='N') and biallelic == True):
+						# Check if is positions is polymorphic in iterated population. Pass fixed or non-segregating in each population
+						if((variant.INFO['AC'] == 0) | (variant.INFO['AC'] == variant.INFO['AN'])):
+							next
+						else:
+
+							REF = variant.REF
+							ALT = variant.ALT[0]
+							AF  = variant.INFO['AC']/variant.INFO['AN']
+
+							# Set derived sequence and freq
+							if(ALT == AA):
+								derivedAllele = REF
+								COUNT = variant.INFO['AN'] - variant.INFO['AC']
+								DAF = 1 - AF
+							elif(REF == AA):
+								derivedAllele = ALT
+								COUNT = variant.INFO['AC']
+								DAF = AF
+							
+							rawVariants.append([str(variant.CHROM),int(variant.POS),REF,ALT,AA,variant.INFO['AC'],int(variant.INFO['AN']),int(COUNT),float(DAF),self.pop,row['id']])
+							# rawVariants.append([str(variant.CHROM),int(variant.POS),REF,ALT,AA,variant.INFO['AC'],int(variant.INFO['AN']),int(COUNT),float(DAF),self.pop,row['id']])
+					else:
+						next
+				except:
+					next
+		return(rawVariants)
+
+
+	# def formatVcfSfs(self, sfs):
+
+	# 	daf = pd.DataFrame(rawVariants,columns=['CHROM','POS','REF','ALT','AA','AC','AN','COUNT','DAF','POP','ID'])
+
+	# 	# b = np.linspace(0,1,self.bins)
+	# 	b = np.linspace(0,1,bins)
+	# 	labels = b[1:].tolist()
+	# 	daf['categories'] = pd.cut(daf['derivedAlleleFrequency'],bins=b,labels=labels)
+	# 	daf = daf.groupby(['functionalClass','id','categories']).count().reset_index()
+	# 	sfs = pd.DataFrame({'freq':daf['categories'].unique(),'p0':daf[daf['functionalClass']=='4fold']['derivedAlleleFrequency'].reset_index(drop=True),'pi':daf[daf['functionalClass']=='0fold']['derivedAlleleFrequency'].reset_index(drop=True)})
+
+	# 	sfs = sfs[['freq','p0','pi']]
+	# 	sfs['freq'] = sfs['freq'].astype(float)
+	# 	sfs['freq'] = sfs['freq'].apply(lambda x: round(x,3))
+	# 	sfs['p0'] = sfs['p0'].fillna(0)
+	# 	sfs['pi'] = sfs['pi'].fillna(0)
+
+	# 	return(sfs)
+
+
+

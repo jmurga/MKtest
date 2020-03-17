@@ -3,14 +3,12 @@ import os
 import subprocess
 import numpy as np
 import pandas as pd
-import scipy.stats as stats
-import plotly.graph_objects as go
-from scipy.optimize import curve_fit
-import pandas as pd
-import rpy2
-import rpy2.robjects as robjects
 import pylab
 import matplotlib.pyplot as plt
+import rpy2
+import rpy2.robjects as robjects
+import scipy.stats as stats
+from scipy.optimize import curve_fit
 
 
 class Mk:
@@ -101,30 +99,27 @@ class Mk:
 			## Cut-offs graph
 		
 			## Melt fractions data
-			# fig = go.Figure(data=go.Scatter(x=listCutoffs, y=alphaCorrected.alphaCorrected),
-			# 	layout=go.Layout(
-			# 		title="Extended MKT analysis",
-			# 		xaxis_type='category',
-			# 		yaxis_title="Adaptation rate",
-			# 		xaxis_title="Frequency cut-offs",
-			# 		template='seaborn'))
+			def plot(cutoffs,alphaValues):
+				names = [str(x) for x in cutoffs]    
+				fig = plt.figure(figsize=(8, 6))
+				plt.style.use('seaborn')
+				plt.plot(names, alphaValues, 'o',color='black');
+				plt.plot(names, alphaValues, color='black');
+				plt.ylim((alphaValues[0] - alphaValues[0]*50/100), (alphaValues[-1] + alphaValues[-1]*50/100));
+				plt.xlabel('Frequency cut-offs')
+				plt.ylabel('Adaptation rate')
+				return(fig)
 
-			names = [str(x) for x in listCutoffs]    
-			plt.style.use('seaborn')
-			plt.plot(names, alphaCorrected.alphaCorrected, 'o',color='black');
-			plt.plot(names, alphaCorrected.alphaCorrected, color='black');
-			plt.ylim((alphaCorrected.alphaCorrected[0] - alphaCorrected.alphaCorrected[0]*50/100), (alphaCorrected.alphaCorrected[-1] + alphaCorrected.alphaCorrected[-1]*50/100));
-			plt.xlabel('Frequency cut-offs')
-			plt.ylabel('Adaptation rate')
+			ax = plot(listCutoffs,alphaCorrected.alphaCorrected)
 			
-			return(alphaCorrected,fractions,plt)
+			return(alphaCorrected,fractions,ax)
 
 		## If no plot to render
 		else:
 
 			return(alphaCorrected,fractions)
 
-	def amkt(self,xlow=0.1,xhigh=0.9):
+	def amkt(self,xlow=0.1,xhigh=0.9,plot=False):
 
 		## Compute alpha values and trim
 		alpha         = 1 - ((self.sfs.pi*self.d0)/(self.sfs.p0*self.di))
@@ -299,24 +294,31 @@ class Mk:
 
 			asympDf = pd.DataFrame({'model':'exponential', 'a':const_a, 'b':const_b, 'c':const_c, 'alphaAsymptotic':alpha_1_est, 'ciLow':alpha_1_low, 'ciHigh':alpha_1_high, 'alphaOriginal':alphaNonasymp},index=[0])
 
+			if plot:
+				# Plotting fit and alpha data
+				def asympPlot(x):
+					return const_a + const_b * np.exp(-const_c*x)
+				vectorizeFunc = np.vectorize(asympPlot)
+				x = np.arange(0.0, 1, 0.00001)
+				y = vectorizeFunc(x)
 
-			# Plotting fit and alpha data
-			def asympPlot(x):
-				return const_a + const_b * np.exp(-const_c*x)
-			vectorizeFunc = np.vectorize(asympPlot)
-			x = np.arange(0.0, 1, 0.00001)
-			y = vectorizeFunc(x)
+				def plot(x,y,freq,alpha,ciLow,ciHigh):
+					
+					fig = plt.figure(figsize=(8, 6))
+					plt.style.use('seaborn')
+					plt.plot(x,y, color='black')
+					plt.plot(x, y, color='black');
+					plt.xlim(0 , 1);
+					plt.ylim(y[0], 1);
+					plt.plot(x, np.array([ciLow]*x.shape[0]), color='black');
+					plt.plot(x, np.array([ciHigh]*x.shape[0]), color='black');
+					plt.plot(freq, alpha, 'o', color='black');
+					plt.xlabel('Allele Frequency')
+					plt.ylabel('Rate of adaptation')
+					plt.fill_between(x,np.array([ciLow]*x.shape[0]), np.array([ciHigh]*x.shape[0]),facecolor='gray', alpha=0.2)
+					return(fig)
 
-			plt.style.use('seaborn')
-			plt.plot(x, y, color='black');
-			plt.xlim(0 , 1);
-			plt.ylim(y[0], 1);
-			plt.plot(x, np.array([alpha_1_low]*x.shape[0]), color='black');
-			plt.plot(x, np.array([alpha_1_high]*x.shape[0]), color='black');
-			plt.plot(fTrimmed, alphaTrimmed, 'o', color='black');
-			plt.xlabel('Allele Frequency')
-			plt.ylabel('Rate of adaptation')
-			plt.fill_between(x,np.array([alpha_1_low]*x.shape[0]), np.array([alpha_1_high]*x.shape[0]),facecolor='gray', alpha=0.2)
+				ax = plot(x,y,fTrimmed,alphaTrimmed,alpha_1_low,alpha_1_high)
 
 		# Force another fit
 		except rpy2.rinterface.RRuntimeError:
@@ -341,5 +343,8 @@ class Mk:
 
 			asympDf = pd.DataFrame({'model':'exponential', 'a':np.nan, 'b':np.nan, 'c':np.nan, 'alphaAsymptotic':np.nan, 'ciLow':np.nan, 'ciHigh':np.nan, 'alphaOriginal':alphaNonasymp},index=[0])
 
-		return(asympDf,plt)
+		if plot:
+			return(asympDf,ax)
+		else:
+			return(asympDf,np.nan)
 

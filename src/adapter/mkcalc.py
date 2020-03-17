@@ -407,7 +407,6 @@ class AsympMK:
 			#if 'SHERLOCK' in os.environ and int(os.environ['SHERLOCK'])==2:
 			#    zf = "/home/users/uricchio/projects/mktest/adapter/sims/"+com.prefix+"/"+com.prefix+"."+str(self.task_id)+".txt"
 				
-
 		p = subprocess.Popen(["gzip","-f",zf])
 
 		p.wait()
@@ -431,8 +430,7 @@ class AsympMK:
 		neut = self.cumuSfs(self.DiscSFSNeutDown())
 		selH = self.cumuSfs(self.DiscSFSSelPosDown(gammaH,pposH))
 		selL = self.cumuSfs(self.DiscSFSSelPosDown(gammaL,pposL))
-		selN = self.cumuSfs(self.DiscSFSSelNegDown(pposH+pposL))        
-
+		selN = self.cumuSfs(self.DiscSFSSelNegDown(pposH+pposL))
 		sel = []
 		for i in range(0,len(selH)):
 			sel.append((selH[i]+selL[i])+selN[i])
@@ -539,4 +537,3 @@ class AsympMK:
 		for thing in selP:
 			print(thing, end=' ')
 		print() 
-
