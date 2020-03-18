@@ -22,11 +22,7 @@ import subprocess
 
 class AsympMK:
 
-	def __init__(self,gam_neg=-40,N=250,theta_f=1e-5,theta_mid_neutral=1e-3,
-				alLow=0.2,alTot=0.2,gL=10,gH=200,al=0.184,be=0.000402,B=1.,
-				pposL=0.001,pposH=0.0,n=10,Lf=10**6,rho=0.001,neut_mid=False,
-				L_mid=150,pref="",nsim=100,TE=5.,demog=False,ABC=False,al2=0.0415,
-				be2=0.00515625,gF=False,skip=0,expan=1.98,scratch=False):
+	def __init__(self,gam_neg=-40,N=250,theta_f=1e-5,theta_mid_neutral=1e-3,alLow=0.2,alTot=0.2,gL=10,gH=200,al=0.184,be=0.000402,B=1.,pposL=0.001,pposH=0.0,n=10,Lf=10**6,rho=0.001,neut_mid=False,L_mid=150,pref="",nsim=100,TE=5.,demog=False,ABC=False,al2=0.0415,be2=0.00515625,gF=False,skip=0,expan=1.98,scratch=False):
 
 		self.skip = skip
 		self.gam_neg = gam_neg
@@ -71,9 +67,66 @@ class AsympMK:
 			self.task_id = int(os.environ['SLURM_ARRAY_TASK_ID'])
 		self.task_id = self.task_id + skip
 
+	def setPpos(self):
+		pposL,pposH =  fsolve(self.solvEqns,(0.001,0.001))
+		#print self.alphaExpSimLow(pposL,pposH)
+		#print self.alphaExpSimTot(pposL,pposH)
+		if pposL < 0.:
+			pposL = 0.
+		if pposH < 0.:
+			pposH = 0.
+		self.pposH = pposH
+		self.pposL = pposL
+
+
+	def intPiP0(self):
+		ret = lambda gam: self.PiP0(gam)
+		return quad(ret,0.,1000)[0]
+
+
+	def get_B_vals(self):
+		ret = []
+		for i in range(20,50):
+			L = int(round(1.3**i))
+			ret.append(self.Br(L),L)
+		return ret
+	
+	def set_Lf(self):
+		Lf  = fsolve(lambda L: self.Br(L,self.theta_f)-self.B,100)
+		self.Lf = int(round(Lf[0]))
+
+	def set_theta_f(self):
+		theta_f  = fsolve(lambda theta: self.Br(self.Lf,theta)-self.B,0.00001)
+		self.theta_f = theta_f[0]
+	
+	def set_theta_f_gam(self):
+		theta_f  = fsolve(lambda theta: self.calcBGam(self.Lf,self.al2,self.be2,theta)-self.B,0.0000001)
+		self.theta_f = theta_f[0]
+
+	def binomOp(self):
+		NN = int(round(self.NN*self.B))
+		samps = [[i for j in range(0,NN+1)] for i in range(0,self.nn+1)]
+		sampFreqs = [[j/(NN+0.) for j in range(0,NN+1)] for i in range(0,self.nn+1)]
+		return binom.pmf(samps,self.nn,sampFreqs)
+
 	def GamSfsNeg(self, x):
 		beta = self.be/(1.*self.B)
 		return (2.**-self.al)*(beta**self.al)*(-mpmath.zeta(self.al,x+beta/2.) + mpmath.zeta(self.al,(2+beta)/2.))/((-1.+x)*x)
+
+	def DiscSFSNeut(self):
+		NN = int(round(self.NN*self.B))
+		def sfs(i):
+			if i > 0 and i < NN:
+				 return 1./(i+0.)
+			return 0.
+		sfs = np.vectorize(sfs)
+		return sfs([(i+0.) for i in range(0,NN+1)])
+
+	def DiscSFSNeutDown(self):
+		return self.B*(self.theta_mid_neutral)*0.255*(np.dot(self.binomOp(),self.DiscSFSNeut()))[1:-1]
+
+	def fixNeut(self):
+		return 0.255*(1./(self.B*self.NN))
 
 	def SfsPos(self, gamma, x):
 		gam = gamma*self.B
@@ -108,12 +161,6 @@ class AsympMK:
 			return (1.-ppos)*self.GamSfsNeg(x)
 		return 0.
 
-	def binomOp(self):
-		NN = int(round(self.NN*self.B))
-		samps = [[i for j in range(0,NN+1)] for i in range(0,self.nn+1)]
-		sampFreqs = [[j/(NN+0.) for j in range(0,NN+1)] for i in range(0,self.nn+1)]
-		return binom.pmf(samps,self.nn,sampFreqs)
-
 	def DiscSFSSel(self,gamma,ppos):
 		NN = int(round(self.NN*self.B))
 		dFunc = np.vectorize(self.FullSfs)
@@ -128,15 +175,6 @@ class AsympMK:
 		NN = int(round(self.NN*self.B))
 		dFunc = np.vectorize(self.FullNeg)
 		return np.multiply(1./(NN+0.),dFunc(ppos,[i/(NN+0.) for i in range(0,NN+1)]))
-
-	def DiscSFSNeut(self):
-		NN = int(round(self.NN*self.B))
-		def sfs(i):
-			if i > 0 and i < NN:
-				 return 1./(i+0.)
-			return 0.
-		sfs = np.vectorize(sfs)
-		return sfs([(i+0.) for i in range(0,NN+1)])
 
 	def DiscSFSSelDown(self, gamma, ppos):
 		return self.DiscSFSSelPosDown(gamma,ppos)+self.DiscSFSSelNegDown(ppos)
@@ -153,12 +191,6 @@ class AsympMK:
 	
 	def DiscSFSSelNegDown(self, ppos):
 		return self.B*(self.theta_mid_neutral)*0.745*(np.dot(self.binomOp(),self.DiscSFSSelNeg(ppos)))[1:-1]
-
-	def DiscSFSNeutDown(self):
-		return self.B*(self.theta_mid_neutral)*0.255*(np.dot(self.binomOp(),self.DiscSFSNeut()))[1:-1]
-
-	def fixNeut(self):
-		return 0.255*(1./(self.B*self.NN))
 
 	#def fixNeg(self,ppos):
 	#    return 0.745*(1-ppos)*(2**(-self.al))*(self.be**self.al)*(-mpmath.zeta(self.al,(2.+self.be)/2.)+mpmath.zeta(self.al,0.5*(2-1./self.NN+self.be)))
@@ -215,17 +247,6 @@ class AsympMK:
 		pposL,pposH = params
 		return (self.alphaExpSimTot(pposL,pposH)-self.alTot,self.alphaExpSimLow(pposL,pposH)-self.alLow)
 
-	def setPpos(self):
-		pposL,pposH =  fsolve(self.solvEqns,(0.001,0.001))
-		#print self.alphaExpSimLow(pposL,pposH)
-		#print self.alphaExpSimTot(pposL,pposH)
-		if pposL < 0.:
-			pposL = 0.
-		if pposH < 0.:
-			pposH = 0.
-		self.pposH = pposH
-		self.pposL = pposL
-
 	def GammaDist(self,gamma):
 		return ((self.be**self.al)/gammaFunc(self.al))*(gamma**(self.al-1))*mpmath.exp(-self.be*gamma)
 
@@ -233,11 +254,6 @@ class AsympMK:
 		U = 4*self.theta_f*self.Lf/(2.*self.NN)
 		R = 2*self.Lf*self.rho/(2.*self.NN)
 		return self.GammaDist(gamma)*mpmath.exp(-(self.GammaDist(gamma)*U/(2.*self.NN))/(gamma/(self.NN+0.)+R/(2.*self.NN)))
-
-	def intPiP0(self):
-		ret = lambda gam: self.PiP0(gam)
-		return quad(ret,0.,1000)[0]
-
 	def calcBGam(self,L,alpha,beta,theta):
 		# not sure whats going on here, seems to overestimate or under sometimes
 		u = 2*theta/(2.*self.NN)
@@ -275,25 +291,6 @@ class AsympMK:
 		#return np.exp(-2.*quad(lambda L: self.calcB(L,theta), 0., Lmax)[0])
 		#print np.exp(-2.*t*u*(polygamma(1,(r+t)/r)-polygamma(1,1+Lmax+t/r))/r**2), np.exp(-u*2.*Lmax/(Lmax*r+2*t))
 		return np.exp(-4*u*Lmax/(2*Lmax*r+t))
-
-	def get_B_vals(self):
-		ret = []
-		for i in range(20,50):
-			L = int(round(1.3**i))
-			ret.append(self.Br(L),L)
-		return ret
-	
-	def set_Lf(self):
-		Lf  = fsolve(lambda L: self.Br(L,self.theta_f)-self.B,100)
-		self.Lf = int(round(Lf[0]))
-
-	def set_theta_f(self):
-		theta_f  = fsolve(lambda theta: self.Br(self.Lf,theta)-self.B,0.00001)
-		self.theta_f = theta_f[0]
-	
-	def set_theta_f_gam(self):
-		theta_f  = fsolve(lambda theta: self.calcBGam(self.Lf,self.al2,self.be2,theta)-self.B,0.0000001)
-		self.theta_f = theta_f[0]
 
 	def make_sim(self,aFlank=False):
 
