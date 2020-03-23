@@ -16,9 +16,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from numba import *
 from numba.extending import overload
-import julia
-jl = julia.Julia(compiled_modules=False)
-fn = jl.include('/home/jmurga/mktest_dev/scripts/test.jl')
 
 B=0.999
 gam_neg=-83
