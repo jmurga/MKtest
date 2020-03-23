@@ -1,5 +1,0 @@
-Installation
-************
-
-sfs_coder has several dependencies, including...
-

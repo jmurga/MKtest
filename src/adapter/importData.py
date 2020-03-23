@@ -260,5 +260,3 @@ class Vcf:
 
 	# 	return(sfs)
 
-
-

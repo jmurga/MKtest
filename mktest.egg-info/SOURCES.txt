@@ -9,7 +9,7 @@ src/adapter/__init__.py
 src/adapter/extensions.py
 src/adapter/importData.py
 src/adapter/mkcalc.py
-src/sfscoder/__init__.py
-src/sfscoder/command.py
-src/sfscoder/ms.py
-src/sfscoder/sfs.py
+src/adapter_dev/__init__.py
+src/adapter_dev/mkcalc_dev.py
+src/mkinfer/__init__.py
+src/mkinfer/inferParams.py

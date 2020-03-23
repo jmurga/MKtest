@@ -7,10 +7,10 @@ setup(
 	author='Lawrence Uricchio',
 	author_email='uricchil@gmail.com',
 	url='NA',
-	packages=['adapter','sfscoder'],
+	packages=['adapter','adapter_dev','mkinfer'],
 	package_dir={
 		'adapter': 'src/adapter',
-		'sfscoder': 'src/sfscoder',
+		'adapter_dev': 'src/adapter_dev',
 		'mkinfer': 'src/mkinfer',
 	},
 	install_requires=[

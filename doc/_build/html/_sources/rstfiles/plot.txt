@@ -1,4 +1,0 @@
-Plotting
-********
-
-In development.

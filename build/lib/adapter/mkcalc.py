@@ -3,73 +3,88 @@
 # modified by jmurga
 # 03/2020
 
+
+from scipy.stats import binom
+from scipy.optimize import fsolve
+# from scipy.optimize import minimize
+from scipy.integrate import quad
+from scipy.special import gamma as gammaFunc
+from mpmath import gammainc
+# from scipy.stats import gamma as gamInt
+from scipy.special import polygamma
+import subprocess
 import sys
 import os
 import mpmath
 import math
 import numpy as np
-from sfscoder import command
-from scipy.stats import binom
-from scipy.optimize import fsolve
-from scipy.optimize import minimize
-from scipy.integrate import quad
-from scipy.special import gamma as gammaFunc
-from mpmath import gammainc
-from scipy.stats import gamma as gamInt
-from scipy.special import polygamma
-import subprocess
+from numba import *
+
+@njit
+def binomOp_numba(NN,B,nn):
+
+	NN = int(round(NN*B))
+	samps2 = np.empty((51,501))
+	sampFreqs2 = np.empty((51,501))
+
+	for i in range(0,nn+1):
+		for j in range(0,NN+1):
+			samps2[i,j] = i
+			sampFreqs2[i,j] = j/(NN+0.)
+
+	return samps2,nn,sampFreqs2
 
 
 class AsympMK:
 
 	def __init__(self,gam_neg=-40,N=250,theta_f=1e-5,theta_mid_neutral=1e-3,
-				alLow=0.2,alTot=0.2,gL=10,gH=200,al=0.184,be=0.000402,B=1.,
-				pposL=0.001,pposH=0.0,n=10,Lf=10**6,rho=0.001,neut_mid=False,
-				L_mid=150,pref="",nsim=100,TE=5.,demog=False,ABC=False,al2=0.0415,
-				be2=0.00515625,gF=False,skip=0,expan=1.98,scratch=False):
+				 alLow=0.2,alTot=0.2,gL=10,gH=200,al=0.184,be=0.000402,B=1.,
+				 pposL=0.001,pposH=0.0,n=10,Lf=10**6,rho=0.001,neut_mid=False,
+				 L_mid=150,pref="",nsim=100,TE=5.,demog=False,ABC=False,al2=0.0415,
+				 be2=0.00515625,gF=False,skip=0,expan=1.98,scratch=False):
 
-		self.skip = skip
-		self.gam_neg = gam_neg
-		self.N = N
-		self.NN = 2*N
-		self.theta_f = theta_f
-		self.theta_mid_neutral = theta_mid_neutral
-		self.alLow = alLow
-		self.alTot = alTot
-		self.gL = gL
-		self.gH = gH
-		self.al = al
-		self.be = be
-		self.al2 = al2
-		self.be2 = be2
-		self.B = B
-		self.task_id = 1
-		self.pposL = pposL
-		self.pposH = pposH
-		self.n = n
-		self.nn = 2*n
-		self.alpha_x = np.zeros(self.nn-1)
-		self.Lf = Lf 
-		self.L_mid = L_mid
-		self.pref = pref
-		self.nsim=nsim
-		self.gF = gF
-		self.cumuSfsNeut= []
-		self.cumuSfsSel = []
-		self.TE = TE
-		self.demog = demog
-		self.ABC=ABC
-		self.expan=expan
-		self.scratch=scratch
-		while self.L_mid % 3 != 0:
-			self.L_mid +=1 
-		self.rho = rho
-		self.neut_mid = neut_mid
-		if 'SGE_TASK_ID' in os.environ:
-			self.task_id = int(os.environ['SGE_TASK_ID'])
-		if 'SLURM_ARRAY_TASK_ID' in os.environ:
-			self.task_id = int(os.environ['SLURM_ARRAY_TASK_ID'])
-		self.task_id = self.task_id + skip
+		 self.skip = skip
+		 self.gam_neg = gam_neg
+		 self.N = N
+		 self.NN = 2*N
+		 self.theta_f = theta_f
+		 self.theta_mid_neutral = theta_mid_neutral
+		 self.alLow = alLow
+		 self.alTot = alTot
+		 self.gL = gL
+		 self.gH = gH
+		 self.al = al
+		 self.be = be
+		 self.al2 = al2
+		 self.be2 = be2
+		 self.B = B
+		 self.task_id = 1
+		 self.pposL = pposL
+		 self.pposH = pposH
+		 self.n = n
+		 self.nn = 2*n
+		 self.alpha_x = np.zeros(self.nn-1)
+		 self.Lf = Lf 
+		 self.L_mid = L_mid
+		 self.pref = pref
+		 self.nsim=nsim
+		 self.gF = gF
+		 self.cumuSfsNeut= []
+		 self.cumuSfsSel = []
+		 self.TE = TE
+		 self.demog = demog
+		 self.ABC=ABC
+		 self.expan=expan
+		 self.scratch=scratch
+		 while self.L_mid % 3 != 0:
+			 self.L_mid +=1 
+		 self.rho = rho
+		 self.neut_mid = neut_mid
+		 if 'SGE_TASK_ID' in os.environ:
+			 self.task_id = int(os.environ['SGE_TASK_ID'])
+		 if 'SLURM_ARRAY_TASK_ID' in os.environ:
+			 self.task_id = int(os.environ['SLURM_ARRAY_TASK_ID'])
+		 self.task_id = self.task_id + skip
 
 	def GamSfsNeg(self, x):
 		beta = self.be/(1.*self.B)
@@ -104,8 +119,10 @@ class AsympMK:
 		return 0.
  
 	def FullNeg(self, ppos, x):
+		beta = self.be/(1.*self.B)
 		if x > 0 and x < 1.:
-			return (1.-ppos)*self.GamSfsNeg(x)
+			return (1.-ppos)*(2.**-self.al)*(beta**self.al)*(-mpmath.zeta(self.al,x+beta/2.) + mpmath.zeta(self.al,(2+beta)/2.))/((-1.+x)*x)
+
 		return 0.
 
 	def binomOp(self):
@@ -113,6 +130,20 @@ class AsympMK:
 		samps = [[i for j in range(0,NN+1)] for i in range(0,self.nn+1)]
 		sampFreqs = [[j/(NN+0.) for j in range(0,NN+1)] for i in range(0,self.nn+1)]
 		return binom.pmf(samps,self.nn,sampFreqs)
+
+	def binomOp_numba(self):
+
+		NN = int(round(self.NN*self.B))
+		samps2 = np.empty((self.nn+1,self.NN+1))
+		sampFreqs2 = np.empty((self.nn+1,self.NN+1))
+
+		for i in range(0,self.nn+1):
+			for j in range(0,self.NN+1):
+				samps2[i,j] = i
+				sampFreqs2[i,j] = j/(self.NN+0.)
+
+		return samps2,self.nn,sampFreqs2
+
 
 	def DiscSFSSel(self,gamma,ppos):
 		NN = int(round(self.NN*self.B))
@@ -127,6 +158,8 @@ class AsympMK:
 	def DiscSFSSelNeg(self,ppos):
 		NN = int(round(self.NN*self.B))
 		dFunc = np.vectorize(self.FullNeg)
+		beta = self.be/(1.*self.B)
+		# n = np.array([i/(NN+0.) for i in range(0,NN+1)])
 		return np.multiply(1./(NN+0.),dFunc(ppos,[i/(NN+0.) for i in range(0,NN+1)]))
 
 	def DiscSFSNeut(self):
@@ -149,6 +182,7 @@ class AsympMK:
 		p0 = polygamma(1,(s+S)/r)
 		p1 = polygamma(1,1.+(r*self.Lf+s+S)/r)
 		red_plus = mpmath.exp(-2.*S*u*(p0-p1)/r**2)
+
 		return (self.theta_mid_neutral)*red_plus*0.745*(np.dot(self.binomOp(),self.DiscSFSSelPos(gamma,ppos)))[1:-1]
 	
 	def DiscSFSSelNegDown(self, ppos):
@@ -160,10 +194,9 @@ class AsympMK:
 	def fixNeut(self):
 		return 0.255*(1./(self.B*self.NN))
 
-	#def fixNeg(self,ppos):
+	#def fixNeg(self,pfpos):
 	#    return 0.745*(1-ppos)*(2**(-self.al))*(self.be**self.al)*(-mpmath.zeta(self.al,(2.+self.be)/2.)+mpmath.zeta(self.al,0.5*(2-1./self.NN+self.be)))
 	#  0.745*(1-ppos)*(2**(-alpha))*(B**-alpha)*(beta**alpha)*(-mpmath.zeta(alpha,1.+beta/(2.*B))+mpmath.zeta(alpha,0.5*(2-1./NN+beta/B)))
-
 	def fixNegB(self,ppos):
 		return 0.745*(1-ppos)*(2**(-self.al))*(self.B**(-self.al))*(self.be**self.al)*(-mpmath.zeta(self.al,1.+self.be/(2.*self.B))+mpmath.zeta(self.al,0.5*(2-1./(self.N*self.B)+self.be/self.B)))
 
@@ -180,20 +213,7 @@ class AsympMK:
 		return pfix
 		
 	def fixPosSim(self,gamma,ppos):
-		# large effect mutations Barton 1995 (eqn. 22a)  
-		# Old version: return (1./(self.B))*0.745*ppos*(1-mpmath.exp(-gamma/(self.NN+0.)))/(1-mpmath.exp(-2.*gamma))
-		# small effect mutations Barton 1995 (eqn. 22b)
-		# Old version: return 0.745*ppos*(1-mpmath.exp(-gamma/(self.NN+0.)))/(1-mpmath.exp(-2.*gamma))
-		#U = self.theta_f*self.Lf/(2.*self.NN)
-		#R = 2*self.Lf*self.rho/(2.*self.NN)
-		#TH = abs((gamma+0.)/self.gam_neg)
-		#denom = 1./(1+4.*U*(-1.*self.gam_neg/(self.NN+0.)))
-		#if TH >= 1.:
-		#    return 0.745*ppos*mpmath.exp((-2.*U/(R*TH))*(1-1./(3.*TH)))*self.pFix(gamma)*denom
-		#else:
-			#print mpmath.exp((-2.*U/R)*(1.-TH/3.))*denom
-		#    return 0.745*ppos*mpmath.exp((-2.*U/R)*(1.-TH/3.))*self.pFix(gamma)*denom
-		
+
 		S = abs(self.gam_neg/(1.*self.NN))
 		r = self.rho/(2.*self.NN)
 		u = self.theta_f/(2.*self.NN)
@@ -407,6 +427,7 @@ class AsympMK:
 			#if 'SHERLOCK' in os.environ and int(os.environ['SHERLOCK'])==2:
 			#    zf = "/home/users/uricchio/projects/mktest/adapter/sims/"+com.prefix+"/"+com.prefix+"."+str(self.task_id)+".txt"
 				
+
 		p = subprocess.Popen(["gzip","-f",zf])
 
 		p.wait()
@@ -421,22 +442,28 @@ class AsympMK:
 				out.append(0.) 
 		return out
 
+
 	def alx(self,gammaL,gammaH,pposL,pposH):
 		ret = []
+
+		#Fixation
 		fN = self.B*self.fixNeut()
 		fNeg = self.B*self.fixNegB(0.5*pposH+0.5*pposL)
 		fPosL = self.fixPosSim(gammaL,0.5*pposL)
 		fPosH = self.fixPosSim(gammaH,0.5*pposH)
+
+		#Pol
 		neut = self.cumuSfs(self.DiscSFSNeutDown())
 		selH = self.cumuSfs(self.DiscSFSSelPosDown(gammaH,pposH))
 		selL = self.cumuSfs(self.DiscSFSSelPosDown(gammaL,pposL))
 		selN = self.cumuSfs(self.DiscSFSSelNegDown(pposH+pposL))
+		
 		sel = []
 		for i in range(0,len(selH)):
 			sel.append((selH[i]+selL[i])+selN[i])
 		for i in range(0,self.nn-1):
 			ret.append(float(1. - (fN/(fPosL + fPosH+  fNeg+0.))* sel[i]/neut[i]))
-		return ret
+		return (ret,sel,neut,selH,selL,selN,fN,fNeg,fPosL,fPosH)
 	
 	def alx_noCumu(self,gammaL,gammaH,pposL,pposH):
 		ret = []
@@ -498,42 +525,13 @@ class AsympMK:
 			ret.append(float(1. - (fN/(fPosL + fPosH+  fNeg+0.))* sel[i]/neut[i]))
 		return ret
 
-	def print_alx(self,gammaL,gammaH,pposL,pposH):
-		out_nopos = self.alx_nopos(gammaL,gammaH,pposL,pposH)
-		out = self.alx(gammaL,gammaH,pposL,pposH)
-		for i in range(0,len(out)):
-			print(i+1, out[i], 'c', 'a')
-			print(i+1, out_nopos[i], 'c','np')
- 
-	def print_alx_noCumu(self,gammaL,gammaH,pposL,pposH):
-		out_nopos = self.alx_nopos_noCumu(gammaL,gammaH,pposL,pposH)
-		out = self.alx_noCumu(gammaL,gammaH,pposL,pposH)
-		for i in range(0,len(out)):
-			print(i+1, out[i], 'c', 'a')
-			print(i+1, out_nopos[i], 'c','np')
-	
-	def print_alpha_quantities(self,gammaL,gammaH,pposL,pposH):
-		fN = self.B*self.fixNeut()*(self.theta_mid_neutral/2.)*self.TE*self.NN
-		fNeg = self.B*(self.theta_mid_neutral/2.)*self.TE*self.NN*self.fixNegB(0.5*pposH+0.5*pposL)
-		fPosL = self.fixPosSim(gammaL,0.5*pposL)*(self.theta_mid_neutral/2.)*self.TE*self.NN
-		fPosH = self.fixPosSim(gammaH,0.5*pposH)*(self.theta_mid_neutral/2.)*self.TE*self.NN
-		#neut = self.cumuSfs(self.DiscSFSNeutDown())
-		#selH = self.cumuSfs(self.DiscSFSSelDown(gammaH,0.))
-		#selL = self.cumuSfs(self.DiscSFSSelDown(gammaL,0.))
 
-		print(fN, fPosL, fNeg)
+	def makeDf(self,alphaPos,alphaNonPos):
+		data = {'alphaPos':alphaPos,'alphaNonPos':alphaNonPos}
+		df = pd.DataFrame(data)
+		df = df.reset_index().rename(columns={'index':'counts'})
+		df.counts = list(range(1,self.nn))
+		return(df)
 
-	def print_alpha_SFS_quantities(self,gammaL,gammaH,pposL,pposH):
-		neut = self.cumuSfs(self.DiscSFSNeutDown())
-		selN = self.cumuSfs(self.DiscSFSSelNegDown(pposL))
-		selP = self.cumuSfs(self.DiscSFSSelPosDown(gammaL,pposL))
 
-		for thing in neut:
-			print(thing, end=' ')
-		print()
-		for thing in selN:
-			print(thing, end=' ')
-		print() 
-		for thing in selP:
-			print(thing, end=' ')
-		print() 
+

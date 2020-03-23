@@ -6,11 +6,11 @@
 
 from scipy.stats import binom
 from scipy.optimize import fsolve
-from scipy.optimize import minimize
+# from scipy.optimize import minimize
 from scipy.integrate import quad
 from scipy.special import gamma as gammaFunc
 from mpmath import gammainc
-from scipy.stats import gamma as gamInt
+# from scipy.stats import gamma as gamInt
 from scipy.special import polygamma
 import subprocess
 import sys
@@ -19,6 +19,26 @@ import mpmath
 import math
 import numpy as np
 from numba import *
+
+import julia
+jl = julia.Julia(compiled_modules=False)
+fn = jl.include('/home/jmurga/mktest/scripts/fullNeg.jl')
+fn2 = jl.include('/home/jmurga/mktest/scripts/SfsPos.jl')
+
+@njit
+def binomOp_numba(NN,B,nn):
+
+	NN = int(round(NN*B))
+	samps2 = np.empty((51,501))
+	sampFreqs2 = np.empty((51,501))
+
+	for i in range(0,nn+1):
+		for j in range(0,NN+1):
+			samps2[i,j] = i
+			sampFreqs2[i,j] = j/(NN+0.)
+
+	return samps2,nn,sampFreqs2
+
 
 class AsympMK:
 
@@ -93,13 +113,6 @@ class AsympMK:
  
 	def FullPos(self, gamma, ppos, x):
 		if x > 0 and x < 1.:
-			#S = abs(self.gam_neg/(1.*self.NN))
-			#r = self.rho/(2.*self.NN)
-			#u = self.theta_f/(2.*self.NN)
-			#s = gamma/(self.NN*1.)
-			#p0 = polygamma(1,(s+S)/r)
-			#p1 = polygamma(1,1.+(r*self.Lf+s+S)/r)
-			#pposplus = ppos*mpmath.exp(-2.*S*u*(p0-p1)/r**2)
 			return ppos*self.SfsPos(gamma, x)
 		return 0.
  
@@ -107,6 +120,7 @@ class AsympMK:
 		beta = self.be/(1.*self.B)
 		if x > 0 and x < 1.:
 			return (1.-ppos)*(2.**-self.al)*(beta**self.al)*(-mpmath.zeta(self.al,x+beta/2.) + mpmath.zeta(self.al,(2+beta)/2.))/((-1.+x)*x)
+
 		return 0.
 
 	def binomOp(self):
@@ -115,35 +129,40 @@ class AsympMK:
 		sampFreqs = [[j/(NN+0.) for j in range(0,NN+1)] for i in range(0,self.nn+1)]
 		return binom.pmf(samps,self.nn,sampFreqs)
 
-	@njit
 	def binomOp_numba(self):
 
 		NN = int(round(self.NN*self.B))
-		samps2 = np.empty((51,501))
-		sampFreqs2 = np.empty((51,501))
+		samps2 = np.empty((self.nn+1,self.NN+1))
+		sampFreqs2 = np.empty((self.nn+1,self.NN+1))
 
-		for i in range(0,nn+1):
-			for j in range(0,NN+1):
+		for i in range(0,self.nn+1):
+			for j in range(0,self.NN+1):
 				samps2[i,j] = i
-				sampFreqs2[i,j] = j/(NN+0.)
+				sampFreqs2[i,j] = j/(self.NN+0.)
 
-		return samps2,nn,sampFreqs2
+		return samps2,self.nn,sampFreqs2
 
 
 	def DiscSFSSel(self,gamma,ppos):
 		NN = int(round(self.NN*self.B))
-		dFunc = np.vectorize(self.FullSfs)
+		# dFunc = np.vectorize(self.FullSfs)
+		# return np.multiply(1./(NN+0.),dFunc(gamma,ppos,[i/(NN+0.) for i in range(0,NN+1)]))
+		n = np.array([i/(NN+0.) for i in range(0,NN+1)])
 		return np.multiply(1./(NN+0.),dFunc(gamma,ppos,[i/(NN+0.) for i in range(0,NN+1)]))
 	
 	def DiscSFSSelPos(self,gamma,ppos):
 		NN = int(round(self.NN*self.B))
-		dFunc = np.vectorize(self.FullPos)
-		return np.multiply(1./(NN+0.),dFunc(gamma,ppos,[i/(NN+0.) for i in range(0,NN+1)]))
+		# dFunc = np.vectorize(self.FullPos)
+		# return np.multiply(1./(NN+0.),dFunc(gamma,ppos,[i/(NN+0.) for i in range(0,NN+1)]))
+		n = np.array([i/(NN+0.) for i in range(0,NN+1)])
+		return np.multiply(1./(NN+0.),fn2(gamma,self.B,n))
 	
 	def DiscSFSSelNeg(self,ppos):
 		NN = int(round(self.NN*self.B))
-		dFunc = np.vectorize(self.FullNeg)
-		return np.multiply(1./(NN+0.),dFunc(ppos,[i/(NN+0.) for i in range(0,NN+1)]))
+		# dFunc = np.vectorize(self.FullNeg)
+		beta = self.be/(1.*self.B)
+		n = np.array([i/(NN+0.) for i in range(0,NN+1)])
+		return np.multiply(1./(NN+0.),fn(ppos,beta,self.al,n))
 
 	def DiscSFSNeut(self):
 		NN = int(round(self.NN*self.B))
@@ -152,7 +171,7 @@ class AsympMK:
 				 return 1./(i+0.)
 			return 0.
 		sfs = np.vectorize(sfs)
-		return sfs([(i+0.) for i in xrange(0,NN+1)])
+		return sfs([(i+0.) for i in range(0,NN+1)])
 
 	def DiscSFSSelDown(self, gamma, ppos):
 		return self.DiscSFSSelPosDown(gamma,ppos)+self.DiscSFSSelNegDown(ppos)
@@ -177,10 +196,9 @@ class AsympMK:
 	def fixNeut(self):
 		return 0.255*(1./(self.B*self.NN))
 
-	#def fixNeg(self,ppos):
+	#def fixNeg(self,pfpos):
 	#    return 0.745*(1-ppos)*(2**(-self.al))*(self.be**self.al)*(-mpmath.zeta(self.al,(2.+self.be)/2.)+mpmath.zeta(self.al,0.5*(2-1./self.NN+self.be)))
 	#  0.745*(1-ppos)*(2**(-alpha))*(B**-alpha)*(beta**alpha)*(-mpmath.zeta(alpha,1.+beta/(2.*B))+mpmath.zeta(alpha,0.5*(2-1./NN+beta/B)))
-
 	def fixNegB(self,ppos):
 		return 0.745*(1-ppos)*(2**(-self.al))*(self.B**(-self.al))*(self.be**self.al)*(-mpmath.zeta(self.al,1.+self.be/(2.*self.B))+mpmath.zeta(self.al,0.5*(2-1./(self.N*self.B)+self.be/self.B)))
 
@@ -197,20 +215,7 @@ class AsympMK:
 		return pfix
 		
 	def fixPosSim(self,gamma,ppos):
-		# large effect mutations Barton 1995 (eqn. 22a)  
-		# Old version: return (1./(self.B))*0.745*ppos*(1-mpmath.exp(-gamma/(self.NN+0.)))/(1-mpmath.exp(-2.*gamma))
-		# small effect mutations Barton 1995 (eqn. 22b)
-		# Old version: return 0.745*ppos*(1-mpmath.exp(-gamma/(self.NN+0.)))/(1-mpmath.exp(-2.*gamma))
-		#U = self.theta_f*self.Lf/(2.*self.NN)
-		#R = 2*self.Lf*self.rho/(2.*self.NN)
-		#TH = abs((gamma+0.)/self.gam_neg)
-		#denom = 1./(1+4.*U*(-1.*self.gam_neg/(self.NN+0.)))
-		#if TH >= 1.:
-		#    return 0.745*ppos*mpmath.exp((-2.*U/(R*TH))*(1-1./(3.*TH)))*self.pFix(gamma)*denom
-		#else:
-			#print mpmath.exp((-2.*U/R)*(1.-TH/3.))*denom
-		#    return 0.745*ppos*mpmath.exp((-2.*U/R)*(1.-TH/3.))*self.pFix(gamma)*denom
-		
+
 		S = abs(self.gam_neg/(1.*self.NN))
 		r = self.rho/(2.*self.NN)
 		u = self.theta_f/(2.*self.NN)
@@ -295,7 +300,7 @@ class AsympMK:
 
 	def get_B_vals(self):
 		ret = []
-		for i in xrange(20,50):
+		for i in range(20,50):
 			L = int(round(1.3**i))
 			ret.append(self.Br(L),L)
 		return ret
@@ -312,123 +317,6 @@ class AsympMK:
 		theta_f  = fsolve(lambda theta: self.calcBGam(self.Lf,self.al2,self.be2,theta)-self.B,0.0000001)
 		self.theta_f = theta_f[0]
 
-	def make_sim(self,aFlank=False):
-
-		t_tot = self.theta_mid_neutral*2*self.L_mid+self.theta_f*2*self.Lf
-		t_tot = t_tot/(2*self.L_mid+2*self.Lf)
-		rmid = (self.theta_mid_neutral*2*self.L_mid/(self.theta_f*self.Lf))
-
-		var = 0.001
-		mean_gam_H = self.gH
-		lpH = mean_gam_H/var
-		apH = mean_gam_H*lpH
-
-		mean_gam_L = self.gL
-		lpL = mean_gam_L/var
-		apL = mean_gam_L*lpL
-
-		com = command.SFSCommand(skip=self.skip)
-		if self.scratch:
-			com.outdir = "/scratch/users/uricchio/mktest/sims"
- 
-		#com.prefix = self.pref+'.gam'+str(-self.gam_neg)+'.pi'+str(self.B)+'.alL'+str(self.alLow)+".gL"+str(self.gL)
-		com.prefix = self.pref+'.pi'+str(self.B) #+'.alL'+str(self.alLow)
-		#if self.pref == "unc":
-		#    com.prefix = 'unc.gam'+str(-self.gam_neg)+'.pi'+str(self.B)+'.alL'+str(self.alLow)+".gL"+str(self.gL)
-		
-		rf = "/home/uricchio/recombs/NO_rec.L"+str(self.Lf)+".2L_mid"+str(self.L_mid)+".rec"
-		if 'SHERLOCK' in os.environ and int(os.environ['SHERLOCK'])==2:
-			rf = "/home/users/uricchio/recombs/NO_rec.L"+str(self.Lf)+".2L_mid"+str(self.L_mid)+".rec"
-		try:
-			os.stat(rf)
-		except:
-			p0 = self.Lf
-			p1 = self.Lf+self.L_mid
-			p2 = self.Lf+2*self.L_mid
-			p3 = 2*self.Lf+2*self.L_mid
-			rfh = open(rf,'w')
-			rfh.write("4\n")
-			rfh.write(str(p0)+" "+str(0.5)+"\n")
-			rfh.write(str(p1)+" "+str(0.5000000001)+"\n")
-			rfh.write(str(p2)+" "+str(0.5000000002)+"\n")
-			rfh.write(str(p3)+" "+str(1)+"\n")
-			rfh.close()
-
-		com.line = ['1',str(self.nsim),'-N',str(self.N),'-n',str(self.n),'-t',str(t_tot)]
-		com.line.extend(['-L','4',str(self.Lf),str(self.L_mid),str(self.L_mid),str(self.Lf),'-l','p','0.0','R','-A'])
-		if aFlank and not self.gF:
-			mean_gam = -self.gam_neg
-			lL = mean_gam/var
-			aL = mean_gam*lL
-			pposF =  0.75*(rmid/2.)*self.pposH*0.05*self.Lf/self.L_mid
-
-			com.line.extend(['-W','L','0','2',str(pposF),str(apH),str(lpH),str(aL),str(lL)])
-		elif aFlank and self.gF:
-		
-			pposF =  0.75*(rmid/2.)*self.pposH*0.05*self.Lf/self.L_mid
-			com.line.extend(['-W','L','0','2',str(pposF),str(apH),str(lpH),str(self.al2),str(self.be2)])
-
-		elif self.gF and not aFlank:
-			com.line.extend(['-W','L','0','2','0.',str(apH),str(lpH),str(self.al2),str(self.be2)])
-
-		else:    
-			com.line.extend(['-W','L','0','1',str(-self.gam_neg),'0','1'])
-		if not self.neut_mid:
-			com.line.extend(['-W','L','1','2',str(self.pposL),str(apL),str(lpL),str(self.al),str(self.be)])
-			com.line.extend(['-W','L','2','2',str(self.pposH),str(apH),str(lpH),str(self.al),str(self.be)])
-		
-		if aFlank and not self.gF:
-			mean_gam = -self.gam_neg
-			lL = mean_gam/var
-			aL = mean_gam*lL
-			pposF =  0.75*(rmid/2.)*self.pposH*0.05*self.Lf/self.L_mid
-
-			com.line.extend(['-W','L','3','2',str(pposF),str(apH),str(lpH),str(aL),str(lL)])
-		elif aFlank and self.gF:
-		
-			pposF =  0.75*(rmid/2.)*self.pposH*0.05*self.Lf/self.L_mid
-			com.line.extend(['-W','L','3','2',str(pposF),str(apH),str(lpH),str(self.al2),str(self.be2)])
-
-		elif self.gF and not aFlank:
-			com.line.extend(['-W','L','3','2','0.',str(apH),str(lpH),str(self.al2),str(self.be2)])
-
-		else:    
-			com.line.extend(['-W','L','3','1',str(-self.gam_neg),'0','1'])
-		com.line.extend(['-v','L','0','1','-v','L','1',str(rmid/2.),'-v','L','2',str(rmid/2.),'-v','L','3','1'])
-		com.line.extend(['-r','F',str(rf),str(self.rho)])
-		com.line.extend(['-a','N','C','C','N'])
-		com.line.extend(['-TE',str(self.TE)])
-   
-		if self.demog == True:
-			com.line.extend(['-Td','4.595', str(self.expan),'-Tg','4.985986','242.36'])
-
-		com.sfs_code_loc = '/home/uricchio/pop_gen_software/sfs_code/bin/sfs_code'
-		if 'SHERLOCK' in os.environ and int(os.environ['SHERLOCK'])==2:
-			com.sfs_code_loc = '/home/users/uricchio/pop_gen_software/sfs_code/bin/sfs_code'
-		com.execute()
-
-		if self.ABC:
-			
-			if not self.scratch:
-				zf = os.path.join(os.getcwd(),"sims/"+com.prefix+"/"+com.prefix+"."+str(self.task_id)+".txt")
-			else:
-				zf = os.path.join("/scratch/users/uricchio/mktest","sims/"+com.prefix+"/"+com.prefix+"."+str(self.task_id)+".txt")
-			#if 'SHERLOCK' in os.environ and int(os.environ['SHERLOCK'])==2:
-			#    zf = "/home/users/uricchio/projects/mktest/adapter/ABC/sims/"+com.prefix+"/"+com.prefix+"."+str(self.task_id)+".txt"
-		else:
-			if not self.scratch:
-				zf = os.path.join(os.getcwd(),"sims/"+com.prefix+"/"+com.prefix+"."+str(self.task_id)+".txt")
-			else:
-				zf = os.path.join("/scratch/users/uricchio/mktest","sims/"+com.prefix+"/"+com.prefix+"."+str(self.task_id)+".txt")
-				 
-			#if 'SHERLOCK' in os.environ and int(os.environ['SHERLOCK'])==2:
-			#    zf = "/home/users/uricchio/projects/mktest/adapter/sims/"+com.prefix+"/"+com.prefix+"."+str(self.task_id)+".txt"
-				
-
-		p = subprocess.Popen(["gzip","-f",zf])
-
-		p.wait()
-
 	def cumuSfs(self,sfsTemp):
 		out = [np.sum(sfsTemp)]
 		for i in range(0,len(sfsTemp)):
@@ -438,37 +326,29 @@ class AsympMK:
 			else:
 				out.append(0.) 
 		return out
-	@njit
-	def cumuSfs_numba(sfsTemp):
-		
-		out = np.empty((len(sfsTemp)+1))
-		out[0] = np.sum(sfsTemp)
 
-		for i in range(0,len(sfsTemp)):
-			app = out[i]-sfsTemp[i]
-			if app > 0.:
-				out[i+1] = app
-			else:
-				out[i+1] = (0.) 
-		return out
 
 	def alx(self,gammaL,gammaH,pposL,pposH):
 		ret = []
+
+		#Fixation
 		fN = self.B*self.fixNeut()
 		fNeg = self.B*self.fixNegB(0.5*pposH+0.5*pposL)
 		fPosL = self.fixPosSim(gammaL,0.5*pposL)
 		fPosH = self.fixPosSim(gammaH,0.5*pposH)
+
+		#Pol
 		neut = self.cumuSfs(self.DiscSFSNeutDown())
 		selH = self.cumuSfs(self.DiscSFSSelPosDown(gammaH,pposH))
 		selL = self.cumuSfs(self.DiscSFSSelPosDown(gammaL,pposL))
-		selN = self.cumuSfs(self.DiscSFSSelNegDown(pposH+pposL))        
-
+		selN = self.cumuSfs(self.DiscSFSSelNegDown(pposH+pposL))
+		
 		sel = []
 		for i in range(0,len(selH)):
 			sel.append((selH[i]+selL[i])+selN[i])
 		for i in range(0,self.nn-1):
 			ret.append(float(1. - (fN/(fPosL + fPosH+  fNeg+0.))* sel[i]/neut[i]))
-		return ret
+		return (ret,sel,neut,selH,selL,selN,fN,fNeg,fPosL,fPosH)
 	
 	def alx_noCumu(self,gammaL,gammaH,pposL,pposH):
 		ret = []
